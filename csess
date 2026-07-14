@@ -424,6 +424,7 @@ MENU = [
     ("summarize", "🤖  generate AI titles + tags"),
     ("push",      "⬆   back up session bodies to Postgres"),
     ("index",     "🔄  re-scan sessions into the DB"),
+    ("update",    "⬇   update csess to the latest version"),
     ("help",      "❓  show all commands"),
     ("quit",      "🚪  exit"),
 ]
@@ -476,6 +477,8 @@ def cmd_menu():
             cmd_push("--all")
         elif action == "index":
             cmd_index()
+        elif action == "update":
+            cmd_update()
         elif action == "help":
             print(USAGE)
 
@@ -508,8 +511,26 @@ def cmd_load(uuid, run=False):
         print(f"resume with:  claude --resume {full_uuid}")
 
 
+def cmd_update():
+    """git-pull the csess checkout this command is a symlink into."""
+    repo = Path(__file__).resolve().parent
+    if not (repo / ".git").exists():
+        print(f"csess isn't a git checkout ({repo}) — update it however you installed it.")
+        return
+    print(f"updating csess in {repo} ...")
+    if subprocess.run(["git", "-C", str(repo), "pull", "--ff-only"]).returncode != 0:
+        print("git pull failed — resolve the above and retry.")
+        return
+    ver = subprocess.run(["git", "-C", str(repo), "describe", "--tags", "--always"],
+                         capture_output=True, text=True).stdout.strip()
+    print(f"updated to {ver}. If a release changed dependencies or the schema, "
+          f"re-run ./install.sh (it's idempotent).")
+
+
 USAGE = """csess — Claude session index
   csess                          open the interactive menu (or: csess start)
+  csess update                   git pull the latest csess
+  csess version                  print version
   csess init                     apply DB schema
   csess index                    (re)scan all session metadata into the DB
   csess push [uuid|--all]        store JSONL bodies in Postgres (incremental)
@@ -523,7 +544,6 @@ USAGE = """csess — Claude session index
   csess untag <uuid> <tag>...    remove tags
   csess load <uuid>              materialize session into current folder (body or disk)
   csess run <uuid>               load + claude --resume
-  csess version                  print version
 """
 
 
@@ -540,6 +560,7 @@ def main():
         return
     cmd, rest = a[0], a[1:]
     if cmd in ("start", "menu"): cmd_menu()
+    elif cmd == "update": cmd_update()
     elif cmd == "init": cmd_init()
     elif cmd == "index": cmd_index()
     elif cmd == "push": cmd_push(rest[0] if rest else "--all")

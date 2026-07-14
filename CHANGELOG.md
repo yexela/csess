@@ -16,6 +16,7 @@ Check your installed version with `csess version`.
   `csess menu`) opens an fzf-powered home screen listing every action; pick one,
   it runs, and you return to the menu. No need to memorize commands.
 - Reusable `pick_session()` helper (shared by `find` and the menu's tag action).
+- **`csess update`** — git-pulls the latest version in place (also in the menu).
 
 ### Changed
 - Bare `csess` in a terminal now opens the menu. When output is piped or `fzf`

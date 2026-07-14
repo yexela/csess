@@ -102,6 +102,23 @@ original file) and then call `claude --resume`. So a session created in project
 A can be resumed from project B — or, once the DB lives on a server, from
 another machine entirely.
 
+## Updating
+
+```bash
+csess update       # git-pulls the latest, tells you the new version
+```
+
+Or manually:
+
+```bash
+cd /path/to/csess && git pull
+```
+
+The `csess` command is a symlink into the clone, so a pull takes effect
+immediately. If a release changes dependencies or the database schema, re-run
+`./install.sh` (it's idempotent). Check what you're on with `csess version`, and
+see [CHANGELOG.md](CHANGELOG.md) for what changed.
+
 ## How it works
 
 - **Metadata + FTS** — `csess index` parses each JSONL for cwd, branch,
