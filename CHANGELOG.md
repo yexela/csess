@@ -9,6 +9,17 @@ Check your installed version with `csess version`.
 
 ## [Unreleased]
 
+## [0.3.0] — unreleased
+
+### Added
+- **Installer offers `summarize`** — after indexing, `install.sh` asks whether to
+  generate AI titles + tags for existing sessions (uses Claude Haiku). Prompt is
+  skipped automatically when non-interactive or when `claude` isn't on PATH.
+
+### Fixed
+- `csess update` now flushes its progress line so output stays in order even when
+  piped (non-TTY).
+
 ## [0.2.0] — 2026-07-14
 
 ### Added
@@ -51,6 +62,7 @@ First release. A local, searchable, portable store for Claude Code sessions.
   prints a setup summary. Friendly errors when Docker or the container is down.
 - **`csess version`**.
 
-[Unreleased]: https://github.com/yexela/csess/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/yexela/csess/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/yexela/csess/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/yexela/csess/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/yexela/csess/releases/tag/v0.1.0
