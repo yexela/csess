@@ -1,0 +1,42 @@
+# Changelog
+
+All notable changes to csess are documented here.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+Check your installed version with `csess version`.
+
+## [Unreleased]
+
+## [0.1.0] — 2026-07-14
+
+First release. A local, searchable, portable store for Claude Code sessions.
+
+### Added
+- **Index** — mirror `~/.claude` session transcripts into Postgres (metadata +
+  full-conversation text) with `csess index`.
+- **Search** — `csess search <tag|text>` matches tags, first message, and the
+  full conversation via a Postgres full-text index.
+- **Tags** — `csess tag` / `csess untag`, plus `csess list`.
+- **AI titles** — `csess summarize` generates a one-line title and topic tags
+  per session using a cheap Haiku call.
+- **Fuzzy find** — `csess find` opens an fzf picker with a live preview
+  (`csess show`) and resumes the chosen session.
+- **Resume anywhere** — `csess load` / `csess run` materialize a session into
+  the current folder (from the stored body or disk) and run `claude --resume`,
+  so any session can be resumed from any folder.
+- **Portable bodies** — full JSONL stored in a Postgres `bytea` column,
+  appended **incrementally** (append-only JSONL → ship only the new tail).
+- **Auto-sync hook** — `csess hook` for `Stop`/`SessionEnd`, indexing and
+  pushing only the current session each turn, with guards against indexing its
+  own `claude -p` calls.
+- **Local or remote database** — default local Docker container, or point at any
+  Postgres with `CSESS_DSN`.
+- **One-command install** — `install.sh` auto-installs dependencies (Docker via
+  Colima, fzf, python), starts the daemon, links `csess`, wires `PATH`, and
+  prints a setup summary. Friendly errors when Docker or the container is down.
+- **`csess version`**.
+
+[Unreleased]: https://github.com/yexela/csess/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/yexela/csess/releases/tag/v0.1.0

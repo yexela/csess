@@ -25,6 +25,8 @@ USER = os.environ.get("CSESS_DB_USER", "postgres")
 WORKDIR = Path(os.environ.get("CSESS_WORKDIR", Path.home() / ".cache" / "csess"))
 SELF_PROJECT = re.sub(r"[/.]", "-", str(WORKDIR))
 
+__version__ = "0.1.0"
+
 
 # ---------- postgres plumbing ----------
 # Local (default): shell into the Docker container, no host psql client needed.
@@ -448,11 +450,14 @@ USAGE = """csess — Claude session index
   csess untag <uuid> <tag>...    remove tags
   csess load <uuid>              materialize session into current folder (body or disk)
   csess run <uuid>               load + claude --resume
+  csess version                  print version
 """
 
 
 def main():
     a = sys.argv[1:]
+    if a and a[0] in ("version", "--version", "-V"):
+        print(f"csess {__version__}"); return
     if not a:
         print(USAGE); return
     cmd, rest = a[0], a[1:]
