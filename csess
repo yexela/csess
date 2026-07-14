@@ -1,0 +1,452 @@
+#!/usr/bin/env python3
+"""csess — index, tag, search, and load Claude Code sessions via Postgres.
+
+Sessions live as JSONL at ~/.claude/projects/<encoded-cwd>/<uuid>.jsonl.
+This tool mirrors their metadata into a Postgres container so you can find a
+session by tag or text and re-load it into the *current* folder, then resume it.
+"""
+import base64
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+PROJECTS = Path(os.environ.get("CLAUDE_PROJECTS_DIR",
+                               Path.home() / ".claude" / "projects"))
+CONTAINER = os.environ.get("CSESS_CONTAINER", "claude-sessions-db")
+DB = os.environ.get("CSESS_DB", "sessions")
+USER = os.environ.get("CSESS_DB_USER", "postgres")
+# Dedicated scratch dir where our own `claude -p` calls (summarize) run, so their
+# throwaway transcripts land in one known place we can exclude + clean. Location-
+# independent, so the loop-guard works no matter where csess is installed/invoked.
+WORKDIR = Path(os.environ.get("CSESS_WORKDIR", Path.home() / ".cache" / "csess"))
+SELF_PROJECT = re.sub(r"[/.]", "-", str(WORKDIR))
+
+
+# ---------- postgres plumbing (via docker exec, no host psql needed) ----------
+def psql(sql, rows=False):
+    args = ["docker", "exec", "-i", CONTAINER, "psql", "-U", USER, "-d", DB,
+            "-v", "ON_ERROR_STOP=1", "-q"]
+    if rows:
+        args += ["-t", "-A", "-F", "\t"]
+    r = subprocess.run(args, input=sql, capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f"psql error:\n{r.stderr.strip()}")
+    if rows:
+        return [ln.split("\t") for ln in r.stdout.splitlines() if ln.strip()]
+    return r.stdout
+
+
+def q(v):
+    if v is None:
+        return "NULL"
+    return "'" + str(v).replace("'", "''") + "'"
+
+
+def encode_cwd(path):
+    """Replicate Claude Code's project-dir encoding: '/' and '.' -> '-'."""
+    return re.sub(r"[/.]", "-", str(path))
+
+
+# ---------- session file parsing ----------
+CONTENT_CAP = 200_000  # max chars of conversational text stored per session for FTS
+
+
+def parse(fp):
+    uuid = fp.stem
+    cwd = branch = first_msg = ts_first = ts_last = None
+    count = 0
+    chunks, clen = [], 0
+    with open(fp, encoding="utf-8") as fh:
+        for line in fh:
+            try:
+                d = json.loads(line)
+            except Exception:
+                continue
+            cwd = cwd or d.get("cwd")
+            branch = branch or d.get("gitBranch")
+            t = d.get("timestamp")
+            if t:
+                ts_first = ts_first or t
+                ts_last = t
+            if d.get("type") in ("user", "assistant"):
+                txt = _text(d.get("message", {}).get("content"))
+                if d.get("type") == "user":
+                    count += 1
+                    if first_msg is None and txt:
+                        first_msg = txt[:2000]
+                if txt and clen < CONTENT_CAP:
+                    chunks.append(txt)
+                    clen += len(txt)
+    # drop mega-tokens (base64/hashes) that aren't searchable words and blow the FTS limit
+    content = re.sub(r"\S{200,}", " ", " ".join(chunks))[:CONTENT_CAP]
+    return dict(uuid=uuid, project_dir=fp.parent.name, cwd=cwd, git_branch=branch,
+                first_message=first_msg, content=content,
+                msg_count=count, size_bytes=fp.stat().st_size, created_at=ts_first,
+                updated_at=ts_last, file_path=str(fp))
+
+
+def _text(content, cap=8000):
+    if isinstance(content, str):
+        return content.strip()[:cap] or None
+    if isinstance(content, list):
+        parts = [p["text"] for p in content
+                 if isinstance(p, dict) and p.get("type") == "text" and p.get("text", "").strip()]
+        return (" ".join(parts).strip()[:cap] or None) if parts else None
+    return None
+
+
+# ---------- commands ----------
+def cmd_init():
+    schema = (Path(__file__).parent / "schema.sql").read_text()
+    psql(schema)
+    print("schema applied")
+
+
+def index_files(files):
+    # a session UUID can exist in several project dirs (it was loaded elsewhere);
+    # keep the largest copy so one INSERT never has duplicate keys
+    best = {}
+    for fp in files:
+        cur = best.get(fp.stem)
+        if cur is None or fp.stat().st_size > cur.stat().st_size:
+            best[fp.stem] = fp
+    vals = []
+    for fp in best.values():
+        s = parse(fp)
+        vals.append("(" + ",".join([
+            q(s["uuid"]), q(s["project_dir"]), q(s["cwd"]), q(s["git_branch"]),
+            q(s["first_message"]), q(s["content"]), str(s["msg_count"]),
+            str(s["size_bytes"]), q(s["created_at"]), q(s["updated_at"]),
+            q(s["file_path"])]) + ")")
+    if not vals:
+        return 0
+    sql = ("INSERT INTO sessions (uuid,project_dir,cwd,git_branch,first_message,"
+           "content,msg_count,size_bytes,created_at,updated_at,file_path) VALUES\n"
+           + ",\n".join(vals) +
+           "\nON CONFLICT (uuid) DO UPDATE SET project_dir=EXCLUDED.project_dir,"
+           "cwd=EXCLUDED.cwd,git_branch=EXCLUDED.git_branch,"
+           "first_message=EXCLUDED.first_message,content=EXCLUDED.content,"
+           "msg_count=EXCLUDED.msg_count,"
+           "size_bytes=EXCLUDED.size_bytes,created_at=EXCLUDED.created_at,"
+           "updated_at=EXCLUDED.updated_at,file_path=EXCLUDED.file_path;")
+    psql(sql)
+    return len(vals)
+
+
+def push_files(files):
+    """Store JSONL bodies in Postgres bytea, INCREMENTALLY.
+
+    JSONL is append-only, so we track how many bytes are already stored (body_size)
+    and each push ships only the new tail, appending it to the bytea. A full upload
+    happens only on first push or if the file shrank (rewrite/compaction)."""
+    pushed = 0
+    for fp in files:
+        if not fp.exists():
+            continue
+        size = fp.stat().st_size
+        row = psql(f"SELECT coalesce(body_size,-1) FROM sessions WHERE uuid={q(fp.stem)};",
+                   rows=True)
+        stored = int(row[0][0]) if row else -1
+        if stored == size:
+            continue                                   # nothing new
+        if stored <= 0 or stored > size:               # first push, or file rewritten
+            b64 = base64.b64encode(fp.read_bytes()).decode()
+            psql(f"UPDATE sessions SET body=decode({q(b64)},'base64'), body_size={size} "
+                 f"WHERE uuid={q(fp.stem)};")
+        else:                                          # append only the new tail
+            with open(fp, "rb") as fh:
+                fh.seek(stored)
+                tail = fh.read()
+            b64 = base64.b64encode(tail).decode()
+            psql(f"UPDATE sessions SET body = body || decode({q(b64)},'base64'), "
+                 f"body_size={size} WHERE uuid={q(fp.stem)};")
+        pushed += 1
+    return pushed
+
+
+def all_session_files():
+    return [fp for fp in PROJECTS.glob("*/*.jsonl") if fp.parent.name != SELF_PROJECT]
+
+
+def cmd_index():
+    n = index_files(all_session_files())
+    print(f"indexed {n} sessions")
+
+
+def cmd_push(target):
+    if target in (None, "--all"):
+        files = all_session_files()
+    else:
+        files = [Path(psql(f"SELECT file_path FROM sessions WHERE uuid={q(resolve(target))};",
+                           rows=True)[0][0])]
+    print(f"pushed {push_files(files)} bodies to Postgres")
+
+
+def _extract_json(s):
+    m = re.search(r"\{.*\}", s.strip(), re.S)
+    if not m:
+        return None
+    try:
+        return json.loads(m.group(0))
+    except Exception:
+        return None
+
+
+def cmd_summarize(target):
+    force = target in ("--all", "--force")
+    where = "" if force else "WHERE summary IS NULL"
+    rows = psql(f"SELECT uuid, left(coalesce(content,first_message,''),6000) "
+                f"FROM sessions {where} ORDER BY updated_at DESC NULLS LAST;", rows=True)
+    rows = [r for r in rows if len(r) >= 2 and r[1].strip()]
+    if not rows:
+        print("nothing to summarize (use --all to redo everything)")
+        return
+    print(f"summarizing {len(rows)} sessions via Haiku...")
+    WORKDIR.mkdir(parents=True, exist_ok=True)
+    done = 0
+    for uuid, content in rows:
+        prompt = ('Summarize this Claude Code session. Output ONLY a JSON object: '
+                  '{"title": "<max 8 words, specific>", "tags": ["<3-5 lowercase kebab-case topics>"]}. '
+                  'Transcript:\n\n' + content)
+        try:
+            r = subprocess.run(["claude", "-p", "--model", "haiku", prompt],
+                               capture_output=True, text=True, timeout=120,
+                               cwd=str(WORKDIR),
+                               env={**os.environ, "CSESS_INDEXING": "1"})
+        except Exception as e:
+            print(f"  {uuid[:8]}  error: {e}")
+            continue
+        data = _extract_json(r.stdout) if r.returncode == 0 else None
+        if not data:
+            print(f"  {uuid[:8]}  (skipped: no JSON)")
+            continue
+        title = str(data.get("title", "")).strip()[:200]
+        psql(f"UPDATE sessions SET summary={q(title)} WHERE uuid={q(uuid)};")
+        for tg in (data.get("tags") or [])[:6]:
+            tg = re.sub(r"[^a-z0-9-]", "", str(tg).lower())
+            if tg:
+                psql(f"INSERT INTO tags(name) VALUES ({q(tg)}) ON CONFLICT (name) DO NOTHING;"
+                     f"INSERT INTO session_tags(session_uuid,tag_id) "
+                     f"SELECT {q(uuid)}, id FROM tags WHERE name={q(tg)} ON CONFLICT DO NOTHING;")
+        done += 1
+        print(f"  {uuid[:8]}  {title}")
+    # our own `claude -p` calls leave throwaway transcripts here; clear them
+    shutil.rmtree(PROJECTS / SELF_PROJECT, ignore_errors=True)
+    print(f"summarized {done}/{len(rows)}")
+
+
+def cmd_hook():
+    """Called by Stop/SessionEnd hooks: index + push ONLY the current session."""
+    if os.environ.get("CSESS_INDEXING"):
+        return  # we're inside a csess-spawned `claude -p` call — don't index ourselves
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+    except Exception:
+        payload = {}
+    tp = payload.get("transcript_path")
+    fp = Path(tp) if tp else None
+    if fp and fp.parent.name == SELF_PROJECT:
+        return  # ignore transcripts created inside csess's own dir
+    if not fp or not fp.exists():
+        index_files(all_session_files())  # fallback: full reindex
+        return
+    index_files([fp])
+    push_files([fp])
+
+
+def resolve(uuid):
+    row = psql(f"SELECT uuid FROM sessions WHERE uuid={q(uuid)} "
+               f"OR uuid LIKE {q(uuid + '%')} LIMIT 1;", rows=True)
+    if not row:
+        sys.exit(f"no session matching {uuid}")
+    return row[0][0]
+
+
+def cmd_tag(uuid, tags):
+    uuid = resolve(uuid)
+    for t in tags:
+        psql(f"INSERT INTO tags(name) VALUES ({q(t)}) ON CONFLICT (name) DO NOTHING;"
+             f"INSERT INTO session_tags(session_uuid,tag_id) "
+             f"SELECT {q(uuid)}, id FROM tags WHERE name={q(t)} "
+             f"ON CONFLICT DO NOTHING;")
+    print(f"tagged {uuid[:8]} -> {', '.join(tags)}")
+
+
+def cmd_untag(uuid, tags):
+    uuid = resolve(uuid)
+    for t in tags:
+        psql(f"DELETE FROM session_tags st USING tags "
+             f"WHERE st.tag_id=tags.id AND tags.name={q(t)} "
+             f"AND st.session_uuid={q(uuid)};")
+    print(f"removed {', '.join(tags)} from {uuid[:8]}")
+
+
+def cmd_search(term):
+    like = "%" + term.replace("%", "") + "%"
+    rows = psql(f"""
+        SELECT s.uuid, s.git_branch, s.msg_count,
+               to_char(s.updated_at,'YYYY-MM-DD'),
+               coalesce(string_agg(DISTINCT t.name,','),''),
+               left(coalesce(s.summary,s.first_message,''),60)
+        FROM sessions s
+        LEFT JOIN session_tags st ON st.session_uuid=s.uuid
+        LEFT JOIN tags t ON t.id=st.tag_id
+        WHERE t.name={q(term)} OR s.content ILIKE {q(like)}
+           OR s.first_message ILIKE {q(like)} OR s.summary ILIKE {q(like)}
+           OR s.fts @@ plainto_tsquery('english',{q(term)})
+        GROUP BY s.uuid
+        ORDER BY s.updated_at DESC NULLS LAST;""", rows=True)
+    _print_rows(rows)
+
+
+def cmd_list():
+    rows = psql("""
+        SELECT s.uuid, s.git_branch, s.msg_count,
+               to_char(s.updated_at,'YYYY-MM-DD'),
+               coalesce(string_agg(DISTINCT t.name,','),''),
+               left(coalesce(s.summary,s.first_message,''),60)
+        FROM sessions s
+        LEFT JOIN session_tags st ON st.session_uuid=s.uuid
+        LEFT JOIN tags t ON t.id=st.tag_id
+        GROUP BY s.uuid ORDER BY s.updated_at DESC NULLS LAST LIMIT 40;""",
+        rows=True)
+    _print_rows(rows)
+
+
+def _print_rows(rows):
+    if not rows:
+        print("(no matches)")
+        return
+    print(f"{'UUID':10} {'DATE':10} {'MSGS':>4}  {'TAGS':16} FIRST MESSAGE")
+    for r in rows:
+        r = (r + [""] * 6)[:6]
+        uuid, branch, msgs, date, tags, first = r
+        print(f"{uuid[:8]:10} {date:10} {msgs:>4}  {tags[:16]:16} {first}")
+
+
+def cmd_show(uuid):
+    """One-session detail, used as the fzf preview."""
+    full = resolve(uuid)
+    r = psql(f"""SELECT to_char(updated_at,'YYYY-MM-DD HH24:MI'), git_branch, cwd,
+                 msg_count, pg_size_pretty(size_bytes), coalesce(summary,''),
+                 coalesce((SELECT string_agg(t.name,', ') FROM session_tags st
+                    JOIN tags t ON t.id=st.tag_id WHERE st.session_uuid=sessions.uuid),''),
+                 left(coalesce(first_message,''),500)
+                 FROM sessions WHERE uuid={q(full)};""", rows=True)[0]
+    date, branch, cwd, msgs, size, summary, tags, first = (r + [""] * 8)[:8]
+    print(f"\033[1m{summary or '(no title yet)'}\033[0m\n")
+    print(f"uuid    {full}")
+    print(f"when    {date}   msgs {msgs}   size {size}")
+    print(f"branch  {branch or '-'}")
+    print(f"cwd     {cwd or '-'}")
+    print(f"tags    {tags or '-'}\n")
+    print(f"opening message:\n{first}")
+
+
+def cmd_find(query=None):
+    if not shutil.which("fzf"):
+        print("fzf not installed — run: brew install fzf\nshowing plain list instead:\n")
+        cmd_list()
+        return
+    rows = psql("""
+        SELECT s.uuid, to_char(s.updated_at,'YYYY-MM-DD'), s.msg_count,
+               coalesce(string_agg(DISTINCT t.name,','),''),
+               coalesce(s.summary, left(s.first_message,70),'(untitled)')
+        FROM sessions s
+        LEFT JOIN session_tags st ON st.session_uuid=s.uuid
+        LEFT JOIN tags t ON t.id=st.tag_id
+        GROUP BY s.uuid ORDER BY s.updated_at DESC NULLS LAST;""", rows=True)
+    if not rows:
+        print("no sessions")
+        return
+    lines = []
+    for r in rows:
+        r = (r + [""] * 5)[:5]
+        uuid, date, msgs, tags, title = r
+        tagstr = f"[{tags}] " if tags else ""
+        lines.append(f"{uuid}\t{date}  {tagstr}{title}")
+    fzf_cmd = ["fzf", "--delimiter=\t", "--with-nth=2..", "--no-hscroll",
+               "--prompt=session> ", "--height=90%", "--reverse",
+               "--preview", "csess show {1}", "--preview-window=down,50%,wrap"]
+    if query:
+        fzf_cmd += ["--query", query]
+    sel = subprocess.run(fzf_cmd, input="\n".join(lines), capture_output=True, text=True)
+    line = sel.stdout.strip()
+    if not line:
+        print("nothing selected")
+        return
+    cmd_load(line.split("\t")[0], run=True)
+
+
+def cmd_load(uuid, run=False):
+    full_uuid = resolve(uuid)
+    dest_dir = PROJECTS / encode_cwd(Path.cwd())
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{full_uuid}.jsonl"
+    meta = psql(f"SELECT file_path, (body IS NOT NULL) FROM sessions "
+                f"WHERE uuid={q(full_uuid)};", rows=True)[0]
+    file_path, has_body = meta[0], meta[1] == "t"
+    if has_body:
+        hexbody = psql(f"SELECT encode(body,'hex') FROM sessions "
+                       f"WHERE uuid={q(full_uuid)};", rows=True)[0][0]
+        dest.write_bytes(bytes.fromhex(hexbody))
+        source = "Postgres body"
+    else:
+        src = Path(file_path)
+        if not src.exists():
+            sys.exit(f"no stored body and original file missing — run `csess push {full_uuid[:8]}` "
+                     f"on the machine that has it")
+        if src.resolve() != dest.resolve():
+            shutil.copy2(src, dest)
+        source = "local disk"
+    print(f"loaded {full_uuid} into {Path.cwd()} (from {source})")
+    if run:
+        os.execvp("claude", ["claude", "--resume", full_uuid])
+    else:
+        print(f"resume with:  claude --resume {full_uuid}")
+
+
+USAGE = """csess — Claude session index
+  csess init                     apply DB schema
+  csess index                    (re)scan all session metadata into the DB
+  csess push [uuid|--all]        store JSONL bodies in Postgres (incremental)
+  csess summarize [--all]        AI title + auto-tags for sessions (Haiku)
+  csess hook                     index+push current session (for Stop/SessionEnd hook)
+  csess list                     recent sessions
+  csess find                     interactive fuzzy picker (fzf) -> resume on Enter
+  csess search <tag|text>        find by tag name or message text
+  csess show <uuid>              one-session detail (used as fzf preview)
+  csess tag <uuid> <tag>...      attach tags
+  csess untag <uuid> <tag>...    remove tags
+  csess load <uuid>              materialize session into current folder (body or disk)
+  csess run <uuid>               load + claude --resume
+"""
+
+
+def main():
+    a = sys.argv[1:]
+    if not a:
+        print(USAGE); return
+    cmd, rest = a[0], a[1:]
+    if cmd == "init": cmd_init()
+    elif cmd == "index": cmd_index()
+    elif cmd == "push": cmd_push(rest[0] if rest else "--all")
+    elif cmd == "summarize": cmd_summarize(rest[0] if rest else None)
+    elif cmd == "hook": cmd_hook()
+    elif cmd == "list": cmd_list()
+    elif cmd == "find": cmd_find(rest[0] if rest else None)
+    elif cmd == "show": cmd_show(rest[0])
+    elif cmd == "search": cmd_search(rest[0])
+    elif cmd == "tag": cmd_tag(rest[0], rest[1:])
+    elif cmd == "untag": cmd_untag(rest[0], rest[1:])
+    elif cmd == "load": cmd_load(rest[0])
+    elif cmd == "run": cmd_load(rest[0], run=True)
+    else: print(USAGE)
+
+
+if __name__ == "__main__":
+    main()

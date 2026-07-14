@@ -1,0 +1,17 @@
+services:
+  db:
+    image: postgres:16
+    container_name: claude-sessions-db
+    environment:
+      POSTGRES_PASSWORD: ${CSESS_DB_PASSWORD:-claude}
+      POSTGRES_DB: sessions
+    # Bound to localhost ONLY — the DB holds your session transcripts, which may
+    # contain secrets/code. Do not expose it to the network.
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - claude_sessions_pg:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  claude_sessions_pg:
