@@ -15,3 +15,4 @@ services:
 
 volumes:
   claude_sessions_pg:
+    name: claude_sessions_pg   # pin (no project prefix) so teardown docs match

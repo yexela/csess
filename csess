@@ -25,7 +25,7 @@ USER = os.environ.get("CSESS_DB_USER", "postgres")
 WORKDIR = Path(os.environ.get("CSESS_WORKDIR", Path.home() / ".cache" / "csess"))
 SELF_PROJECT = re.sub(r"[/.]", "-", str(WORKDIR))
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 
 # ---------- postgres plumbing ----------
@@ -517,7 +517,7 @@ def cmd_update():
     if not (repo / ".git").exists():
         print(f"csess isn't a git checkout ({repo}) — update it however you installed it.")
         return
-    print(f"updating csess in {repo} ...")
+    print(f"updating csess in {repo} ...", flush=True)
     if subprocess.run(["git", "-C", str(repo), "pull", "--ff-only"]).returncode != 0:
         print("git pull failed — resolve the above and retry.")
         return

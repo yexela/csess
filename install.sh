@@ -80,6 +80,18 @@ esac
 
 echo "==> Indexing existing sessions..."
 index_out="$("$REPO/csess" index)"
+echo "   $index_out"
+
+# --- optional: AI titles + tags for existing sessions ---
+if [ -t 0 ] && have claude; then
+  printf "\nGenerate AI titles + tags for your existing sessions now?\n"
+  printf "  (uses Claude Haiku — one quick call per untitled session) [y/N] "
+  read -r ans || ans=""
+  case "$ans" in
+    [Yy]*) "$REPO/csess" summarize ;;
+    *)     echo "   Skipped — run 'csess summarize' anytime to add titles." ;;
+  esac
+fi
 
 # --- success summary ---
 case "$(docker context show 2>/dev/null)" in
