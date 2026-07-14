@@ -1,5 +1,7 @@
 # csess — a searchable, portable store for Claude Code sessions
 
+![csess — fuzzy-find any past session, plus an interactive menu of every command](docs/demo.gif)
+
 Claude Code keeps every session as a JSONL file under
 `~/.claude/projects/<encoded-cwd>/<uuid>.jsonl`. That means your history is
 **bound to the folder** it was created in, keyed only by an opaque UUID, and
@@ -16,8 +18,6 @@ searchable only by grepping raw files.
   bytes are shipped, since JSONL is append-only)
 
 Everything runs **locally**. The database is bound to `127.0.0.1` only.
-
-![csess demo — list, full-content search, and the fuzzy find picker](docs/demo.gif)
 
 ```
    ~/.claude/projects/**/*.jsonl                Postgres (Docker, localhost)

@@ -9,6 +9,10 @@ Check your installed version with `csess version`.
 
 ## [Unreleased]
 
+### Changed
+- Demo GIF now showcases fuzzy find + the interactive menu, and moved to the top
+  of the README.
+
 ## [0.3.0] — 2026-07-14
 
 ### Added

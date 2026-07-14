@@ -1,6 +1,6 @@
 # csess demo tape — render with:  vhs docs/demo.tape
-# Requires: vhs (brew install vhs), a running csess DB, and csess on PATH.
-# Produces docs/demo.gif
+# Requires: vhs (brew install vhs), a running csess DB seeded with docs/demo-seed.sql
+# into a `sessions_demo` database, and csess on PATH. Produces docs/demo.gif
 
 Output docs/demo.gif
 
@@ -19,26 +19,8 @@ Type "export CSESS_DB=sessions_demo" Enter
 Type "clear" Enter
 Show
 
-# --- browse with AI titles + tags ---
-Type "# browse your Claude Code sessions — with AI titles and tags"
-Sleep 800ms
-Enter
-Type "csess list"
-Sleep 400ms
-Enter
-Sleep 3s
-
-# --- full-content search ---
-Type "# search the full text of every conversation, not just the first line"
-Sleep 800ms
-Enter
-Type "csess search testflight"
-Sleep 400ms
-Enter
-Sleep 3s
-
-# --- interactive fuzzy picker ---
-Type "# fuzzy-find with live preview  (Enter would resume it in this folder)"
+# --- fuzzy find: the star ---
+Type "# find any past session by content, tag, or fuzzy match"
 Sleep 800ms
 Enter
 Type "csess find"
@@ -48,4 +30,15 @@ Sleep 1500ms
 Type "stripe"
 Sleep 2500ms
 Escape
-Sleep 1200ms
+Sleep 900ms
+
+# --- the menu: no commands to memorize ---
+Type "# forgot the commands? just run 'csess'"
+Sleep 800ms
+Enter
+Type "csess"
+Sleep 400ms
+Enter
+Sleep 3200ms
+Escape
+Sleep 1000ms
