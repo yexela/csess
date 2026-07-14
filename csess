@@ -47,7 +47,18 @@ def psql(sql, rows=False):
         args += ["-t", "-A", "-F", "\t"]
     r = subprocess.run(args, input=sql, capture_output=True, text=True)
     if r.returncode != 0:
-        sys.exit(f"psql error:\n{r.stderr.strip()}")
+        err = r.stderr.strip()
+        low = err.lower()
+        if not DSN and ("docker.sock" in low or "docker daemon" in low
+                        or "cannot connect to the docker" in low or "docker api" in low):
+            sys.exit("csess: can't reach Docker — is the daemon running?\n"
+                     "  Start it with:  open -a Docker   (or: colima start)\n"
+                     "  Then retry. (csess stores sessions in a Postgres container.)")
+        if not DSN and "no such container" in low:
+            sys.exit(f"csess: the Postgres container '{CONTAINER}' isn't running.\n"
+                     "  Start it with:  docker compose up -d   (or: docker start "
+                     f"{CONTAINER})")
+        sys.exit(f"psql error:\n{err}")
     if rows:
         return [ln.split("\t") for ln in r.stdout.splitlines() if ln.strip()]
     return r.stdout

@@ -4,7 +4,17 @@ set -euo pipefail
 cd "$(dirname "$0")"
 REPO="$PWD"
 
-command -v docker >/dev/null || { echo "docker is required"; exit 1; }
+command -v docker >/dev/null || {
+  echo "Docker is required but not installed."
+  echo "  Install:  brew install --cask docker   (or: brew install colima docker)"
+  exit 1
+}
+docker info >/dev/null 2>&1 || {
+  echo "Docker is installed but the daemon isn't running."
+  echo "  Start it with:  open -a Docker   (or: colima start)"
+  echo "  Then re-run ./install.sh"
+  exit 1
+}
 
 echo "==> Starting Postgres (docker compose)..."
 docker compose up -d
