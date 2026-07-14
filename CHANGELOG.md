@@ -9,7 +9,7 @@ Check your installed version with `csess version`.
 
 ## [Unreleased]
 
-## [0.3.0] — unreleased
+## [0.3.0] — 2026-07-14
 
 ### Added
 - **Installer offers `summarize`** — after indexing, `install.sh` asks whether to
