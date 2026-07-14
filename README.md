@@ -61,9 +61,19 @@ cd csess
 ./install.sh
 ```
 
-This starts Postgres, applies the schema, links `csess` into `~/.local/bin`,
-and indexes your existing sessions. Follow the printed instructions to add the
-optional auto-sync hook.
+On a fresh install this:
+
+- starts Postgres and applies the schema;
+- links `csess` into `~/.local/bin` (adding it to your `PATH` if needed);
+- **indexes every session already in `~/.claude`** — your *whole existing
+  history*, retroactively, not just sessions created from now on;
+- **offers to generate AI titles + tags** for those existing sessions right then
+  (a `[y/N]` prompt — say yes for a browsable history out of the box, or skip it
+  and run `csess summarize` whenever). Auto-skipped if it's non-interactive or
+  `claude` isn't on your PATH;
+- prints a summary and the optional auto-sync hook to add.
+
+`install.sh` is idempotent — safe to re-run anytime (e.g. after `git pull`).
 
 ## Usage
 
@@ -87,7 +97,7 @@ Or call the commands directly:
 csess find                 # interactive fuzzy picker → Enter resumes here
 csess search testflight    # full-content search (matches anywhere in a convo)
 csess list                 # recent sessions with titles + tags
-csess summarize            # AI title + auto-tags for untitled sessions
+csess summarize            # AI title + auto-tags for all untitled sessions (also offered at install)
 csess tag <uuid> billing   # your own tags (UUID prefix is enough)
 csess run <uuid>           # materialize into current folder + claude --resume
 csess index                # re-scan metadata (also run by the hook)

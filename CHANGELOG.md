@@ -12,6 +12,8 @@ Check your installed version with `csess version`.
 ### Changed
 - Demo GIF now showcases fuzzy find + the interactive menu, and moved to the top
   of the README.
+- README clarifies install behavior: indexing picks up your **whole existing
+  history** retroactively, and `install.sh` offers to `summarize` those sessions.
 
 ## [0.3.0] — 2026-07-14
 
