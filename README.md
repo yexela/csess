@@ -67,6 +67,22 @@ optional auto-sync hook.
 
 ## Usage
 
+New here? Just run **`csess`** (or `csess start`) — it opens an interactive menu
+of every action, so you don't have to memorize commands:
+
+```
+csess> ▏                type to filter · ↑↓ move · Enter select · Esc quit
+❯ 🔎  find & resume a session
+  📋  list recent sessions
+  🔍  search sessions by text or tag
+  🏷   add tags to a session
+  🤖  generate AI titles + tags
+  ⬆   back up session bodies
+  🔄  re-scan sessions into the DB
+```
+
+Or call the commands directly:
+
 ```bash
 csess find                 # interactive fuzzy picker → Enter resumes here
 csess search testflight    # full-content search (matches anywhere in a convo)
@@ -85,6 +101,23 @@ project dir (preferring the body stored in Postgres, falling back to the
 original file) and then call `claude --resume`. So a session created in project
 A can be resumed from project B — or, once the DB lives on a server, from
 another machine entirely.
+
+## Updating
+
+```bash
+csess update       # git-pulls the latest, tells you the new version
+```
+
+Or manually:
+
+```bash
+cd /path/to/csess && git pull
+```
+
+The `csess` command is a symlink into the clone, so a pull takes effect
+immediately. If a release changes dependencies or the database schema, re-run
+`./install.sh` (it's idempotent). Check what you're on with `csess version`, and
+see [CHANGELOG.md](CHANGELOG.md) for what changed.
 
 ## How it works
 

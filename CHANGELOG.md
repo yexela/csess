@@ -9,6 +9,19 @@ Check your installed version with `csess version`.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-07-14
+
+### Added
+- **Interactive menu** — running `csess` with no arguments (or `csess start` /
+  `csess menu`) opens an fzf-powered home screen listing every action; pick one,
+  it runs, and you return to the menu. No need to memorize commands.
+- Reusable `pick_session()` helper (shared by `find` and the menu's tag action).
+- **`csess update`** — git-pulls the latest version in place (also in the menu).
+
+### Changed
+- Bare `csess` in a terminal now opens the menu. When output is piped or `fzf`
+  isn't installed, it falls back to printing the usage/help text as before.
+
 ## [0.1.0] — 2026-07-14
 
 First release. A local, searchable, portable store for Claude Code sessions.
@@ -38,5 +51,6 @@ First release. A local, searchable, portable store for Claude Code sessions.
   prints a setup summary. Friendly errors when Docker or the container is down.
 - **`csess version`**.
 
-[Unreleased]: https://github.com/yexela/csess/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/yexela/csess/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/yexela/csess/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/yexela/csess/releases/tag/v0.1.0
