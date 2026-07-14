@@ -91,11 +91,30 @@ Environment variables (all optional):
 
 | Var | Default | Purpose |
 |-----|---------|---------|
+| `CSESS_DSN` | _(unset)_ | Postgres connection string for a **remote** DB (see below); overrides the local container |
 | `CSESS_CONTAINER` | `claude-sessions-db` | Postgres container name |
 | `CSESS_DB` | `sessions` | database name |
 | `CSESS_DB_USER` | `postgres` | database user |
 | `CSESS_WORKDIR` | `~/.cache/csess` | scratch dir for internal `claude -p` calls |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | where Claude Code stores sessions |
+
+### Local vs. remote database
+
+By default `csess` talks to the local Docker container — no host `psql` client
+needed. To point it at a **remote** Postgres instead (e.g. a shared server so
+several machines share one history), set a connection string:
+
+```bash
+export CSESS_DSN="postgresql://user:pass@db.example.com:5432/sessions"
+csess index          # now reads/writes the remote DB
+```
+
+- With `CSESS_DSN` set, csess uses a host `psql` if present, otherwise routes
+  through the local container as a client.
+- Apply `schema.sql` to the remote database once before first use.
+- Everything else is identical — indexing your local sessions and resuming them
+  into folders works the same; only the storage moves off-box.
+- Unset `CSESS_DSN` to switch back to local.
 
 ## Security notes
 
@@ -109,6 +128,27 @@ Environment variables (all optional):
 - Cross-machine `pull`
 - Optional MCP tool so you can search sessions from inside a conversation
 
+## Troubleshooting
+
+**`csess: command not found`** — make sure `~/.local/bin` is on your `PATH`.
+
+**`psql error: ... connection refused`** — the database isn't running. Locally:
+`docker compose up -d` (or `docker start claude-sessions-db`).
+
+**`csess find` just prints a list** — install fzf: `brew install fzf`.
+
+**Search returns nothing** — run `csess index` (metadata); AI titles need
+`csess summarize`.
+
+**Auto-sync hook isn't firing** — hooks load at session start, so they only
+affect sessions started *after* you added them. Use the **absolute path** to
+`csess` in `~/.claude/settings.json` (hooks may run without `~/.local/bin` on
+PATH), and confirm the container is running.
+
+**`load`: "no stored body and original file missing"** — that session's body was
+never pushed and the original file isn't on this machine. Run `csess push` on the
+machine that has it.
+
 ## License
 
-MIT © Alexey Chernetsky
+MIT © Oleksii Chernetskyi

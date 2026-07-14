@@ -26,10 +26,23 @@ WORKDIR = Path(os.environ.get("CSESS_WORKDIR", Path.home() / ".cache" / "csess")
 SELF_PROJECT = re.sub(r"[/.]", "-", str(WORKDIR))
 
 
-# ---------- postgres plumbing (via docker exec, no host psql needed) ----------
+# ---------- postgres plumbing ----------
+# Local (default): shell into the Docker container, no host psql client needed.
+# Remote: set CSESS_DSN=postgresql://user:pass@host:5432/sessions — uses a host
+# `psql` if present, otherwise routes through the container as a psql client.
+DSN = os.environ.get("CSESS_DSN")
+
+
+def _psql_base():
+    if DSN:
+        if shutil.which("psql"):
+            return ["psql", DSN]
+        return ["docker", "exec", "-i", CONTAINER, "psql", DSN]
+    return ["docker", "exec", "-i", CONTAINER, "psql", "-U", USER, "-d", DB]
+
+
 def psql(sql, rows=False):
-    args = ["docker", "exec", "-i", CONTAINER, "psql", "-U", USER, "-d", DB,
-            "-v", "ON_ERROR_STOP=1", "-q"]
+    args = _psql_base() + ["-v", "ON_ERROR_STOP=1", "-q"]
     if rows:
         args += ["-t", "-A", "-F", "\t"]
     r = subprocess.run(args, input=sql, capture_output=True, text=True)
