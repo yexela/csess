@@ -79,19 +79,33 @@ case ":$PATH:" in
 esac
 
 echo "==> Indexing existing sessions..."
-"$REPO/csess" index
+index_out="$("$REPO/csess" index)"
+
+# --- success summary ---
+case "$(docker context show 2>/dev/null)" in
+  colima)        runtime="Colima (headless)" ;;
+  desktop-linux) runtime="Docker Desktop" ;;
+  *)             runtime="Docker" ;;
+esac
 
 cat <<EOF
 
-Done. If csess isn't found, open a new terminal (PATH was just updated).
+──────────────────────────────────────────────
+ ✓ csess setup complete
+──────────────────────────────────────────────
+ ✓ Docker      running via ${runtime}
+ ✓ Postgres    container 'claude-sessions-db' up
+ ✓ fzf         $(fzf --version 2>/dev/null | awk '{print $1}')
+ ✓ csess       linked → ~/.local/bin/csess
+ ✓ Sessions    ${index_out}
 
-For automatic turn-by-turn sync, add this to ~/.claude/settings.json (use the
-absolute path, since hooks may run without ~/.local/bin on PATH):
+Next steps:
+  • If 'csess' isn't found, open a new terminal (PATH was just updated).
+  • Try it:  csess find
+  • For auto-sync every turn, add this to ~/.claude/settings.json:
 
-  "hooks": {
-    "Stop":       [{"hooks":[{"type":"command","command":"$HOME/.local/bin/csess hook >/dev/null 2>&1 || true"}]}],
-    "SessionEnd": [{"hooks":[{"type":"command","command":"$HOME/.local/bin/csess hook >/dev/null 2>&1 || true"}]}]
-  }
-
-Then try:  csess find
+      "hooks": {
+        "Stop":       [{"hooks":[{"type":"command","command":"$HOME/.local/bin/csess hook >/dev/null 2>&1 || true"}]}],
+        "SessionEnd": [{"hooks":[{"type":"command","command":"$HOME/.local/bin/csess hook >/dev/null 2>&1 || true"}]}]
+      }
 EOF
