@@ -9,7 +9,7 @@ Check your installed version with `csess version`.
 
 ## [Unreleased]
 
-## [0.2.0] — unreleased
+## [0.2.0] — 2026-07-14
 
 ### Added
 - **Interactive menu** — running `csess` with no arguments (or `csess start` /

@@ -25,7 +25,7 @@ USER = os.environ.get("CSESS_DB_USER", "postgres")
 WORKDIR = Path(os.environ.get("CSESS_WORKDIR", Path.home() / ".cache" / "csess"))
 SELF_PROJECT = re.sub(r"[/.]", "-", str(WORKDIR))
 
-__version__ = "0.2.0-dev"
+__version__ = "0.2.0"
 
 
 # ---------- postgres plumbing ----------
