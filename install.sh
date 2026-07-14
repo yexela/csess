@@ -22,12 +22,31 @@ echo "==> Linking csess -> ~/.local/bin/csess ..."
 mkdir -p "$HOME/.local/bin"
 ln -sf "$REPO/csess" "$HOME/.local/bin/csess"
 
+# Ensure ~/.local/bin is on PATH (the #1 "csess: command not found" cause)
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;                       # already on PATH, nothing to do
+  *)
+    case "$(basename "${SHELL:-sh}")" in
+      zsh)  rc="$HOME/.zshrc" ;;
+      bash) rc="$HOME/.bashrc" ;;
+      *)    rc="$HOME/.profile" ;;
+    esac
+    line='export PATH="$HOME/.local/bin:$PATH"'
+    if ! grep -qsF "$line" "$rc" 2>/dev/null; then
+      printf '\n# added by csess installer\n%s\n' "$line" >> "$rc"
+      echo "   ~/.local/bin was not on PATH — added it to $rc"
+    fi
+    echo "   -> run:  source $rc   (or open a new terminal) before using csess"
+    export PATH="$HOME/.local/bin:$PATH"                 # so this script's index works
+    ;;
+esac
+
 echo "==> Indexing existing sessions..."
 "$REPO/csess" index
 
 cat <<EOF
 
-Done. Make sure ~/.local/bin is on your PATH.
+Done. If csess isn't found, open a new terminal (PATH was just updated).
 
 For automatic turn-by-turn sync, add this to ~/.claude/settings.json (use the
 absolute path, since hooks may run without ~/.local/bin on PATH):
