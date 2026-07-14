@@ -17,6 +17,8 @@ searchable only by grepping raw files.
 
 Everything runs **locally**. The database is bound to `127.0.0.1` only.
 
+![csess demo — list, full-content search, and the fuzzy find picker](docs/demo.gif)
+
 ```
    ~/.claude/projects/**/*.jsonl                Postgres (Docker, localhost)
    ┌───────────────────────────┐   index/push   ┌────────────────────────────┐
