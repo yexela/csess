@@ -31,12 +31,27 @@ Everything runs **locally**. The database is bound to `127.0.0.1` only.
    └─────────────────────┘
 ```
 
-## Requirements
+## Prerequisites
 
-- Docker
-- Python 3
-- [Claude Code](https://claude.com/claude-code) (`claude` on your PATH)
-- `fzf` (optional, for `csess find`) — `brew install fzf`
+`install.sh` **auto-installs everything else for you** via Homebrew — Docker
+(headless, via Colima), `fzf`, and `python3` — and starts the Docker daemon. So
+you only need two things up front:
+
+| Need | Why |
+|------|-----|
+| **[Homebrew](https://brew.sh)** | the installer uses it to fetch the rest |
+| **[Claude Code](https://claude.com/claude-code)** | provides the sessions (`claude` on your PATH) |
+
+Everything below is handled automatically by the installer:
+
+| Auto-installed | Purpose |
+|----------------|---------|
+| Docker (Colima) | hosts the Postgres database, started headlessly |
+| `fzf` | powers `csess find` |
+| `python3` | runs the `csess` script |
+
+> Already have Docker Desktop? The installer detects it and just starts it
+> instead of installing Colima.
 
 ## Install
 

@@ -4,15 +4,42 @@ set -euo pipefail
 cd "$(dirname "$0")"
 REPO="$PWD"
 
-command -v docker >/dev/null || {
-  echo "Docker is required but not installed."
-  echo "  Install:  brew install --cask docker   (or: brew install colima docker)"
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# --- Homebrew (used to install everything else) ---
+if ! have brew; then
+  echo "Homebrew is required to auto-install dependencies."
+  echo "  Install it from https://brew.sh  then re-run ./install.sh"
   exit 1
-}
+fi
+
+# --- Python 3 ---
+have python3 || { echo "==> Installing python3..."; brew install python; }
+
+# --- fzf (powers 'csess find') ---
+have fzf || { echo "==> Installing fzf..."; brew install fzf; }
+
+# --- Docker engine + a running daemon ---
+if ! docker info >/dev/null 2>&1; then
+  if ! have docker; then
+    echo "==> Installing Docker engine (Colima — headless, no GUI)..."
+    brew install colima docker
+  fi
+  echo "==> Starting a Docker daemon..."
+  if have colima; then
+    colima start
+  elif [ -d "/Applications/Docker.app" ]; then
+    open -a Docker
+    printf "   waiting for Docker Desktop"
+    for _ in $(seq 1 60); do docker info >/dev/null 2>&1 && break; printf "."; sleep 2; done
+    echo
+  else
+    echo "==> Installing Colima (headless Docker runtime)..."
+    brew install colima docker && colima start
+  fi
+fi
 docker info >/dev/null 2>&1 || {
-  echo "Docker is installed but the daemon isn't running."
-  echo "  Start it with:  open -a Docker   (or: colima start)"
-  echo "  Then re-run ./install.sh"
+  echo "Docker still isn't reachable. Try 'colima start' (or start Docker Desktop) and re-run."
   exit 1
 }
 
