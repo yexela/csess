@@ -67,6 +67,22 @@ optional auto-sync hook.
 
 ## Usage
 
+New here? Just run **`csess`** (or `csess start`) — it opens an interactive menu
+of every action, so you don't have to memorize commands:
+
+```
+csess> ▏                type to filter · ↑↓ move · Enter select · Esc quit
+❯ 🔎  find & resume a session
+  📋  list recent sessions
+  🔍  search sessions by text or tag
+  🏷   add tags to a session
+  🤖  generate AI titles + tags
+  ⬆   back up session bodies
+  🔄  re-scan sessions into the DB
+```
+
+Or call the commands directly:
+
 ```bash
 csess find                 # interactive fuzzy picker → Enter resumes here
 csess search testflight    # full-content search (matches anywhere in a convo)

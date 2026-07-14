@@ -25,7 +25,7 @@ USER = os.environ.get("CSESS_DB_USER", "postgres")
 WORKDIR = Path(os.environ.get("CSESS_WORKDIR", Path.home() / ".cache" / "csess"))
 SELF_PROJECT = re.sub(r"[/.]", "-", str(WORKDIR))
 
-__version__ = "0.1.0"
+__version__ = "0.2.0-dev"
 
 
 # ---------- postgres plumbing ----------
@@ -373,11 +373,10 @@ def cmd_show(uuid):
     print(f"opening message:\n{first}")
 
 
-def cmd_find(query=None):
+def pick_session(query=None):
+    """fzf session picker with live preview; returns the chosen uuid or None."""
     if not shutil.which("fzf"):
-        print("fzf not installed — run: brew install fzf\nshowing plain list instead:\n")
-        cmd_list()
-        return
+        return None
     rows = psql("""
         SELECT s.uuid, to_char(s.updated_at,'YYYY-MM-DD'), s.msg_count,
                coalesce(string_agg(DISTINCT t.name,','),''),
@@ -387,8 +386,7 @@ def cmd_find(query=None):
         LEFT JOIN tags t ON t.id=st.tag_id
         GROUP BY s.uuid ORDER BY s.updated_at DESC NULLS LAST;""", rows=True)
     if not rows:
-        print("no sessions")
-        return
+        return None
     lines = []
     for r in rows:
         r = (r + [""] * 5)[:5]
@@ -397,15 +395,89 @@ def cmd_find(query=None):
         lines.append(f"{uuid}\t{date}  {tagstr}{title}")
     fzf_cmd = ["fzf", "--delimiter=\t", "--with-nth=2..", "--no-hscroll",
                "--prompt=session> ", "--height=90%", "--reverse",
+               "--header=↑↓ move · type to filter · Enter select · Esc cancel",
                "--preview", "csess show {1}", "--preview-window=down,50%,wrap"]
     if query:
         fzf_cmd += ["--query", query]
     sel = subprocess.run(fzf_cmd, input="\n".join(lines), capture_output=True, text=True)
     line = sel.stdout.strip()
-    if not line:
-        print("nothing selected")
+    return line.split("\t")[0] if line else None
+
+
+def cmd_find(query=None):
+    if not shutil.which("fzf"):
+        print("fzf not installed — run: brew install fzf\nshowing plain list instead:\n")
+        cmd_list()
         return
-    cmd_load(line.split("\t")[0], run=True)
+    uuid = pick_session(query)
+    if uuid:
+        cmd_load(uuid, run=True)
+    else:
+        print("nothing selected")
+
+
+MENU = [
+    ("find",      "🔎  find & resume a session (fuzzy picker)"),
+    ("list",      "📋  list recent sessions"),
+    ("search",    "🔍  search sessions by text or tag"),
+    ("tag",       "🏷   add tags to a session"),
+    ("summarize", "🤖  generate AI titles + tags"),
+    ("push",      "⬆   back up session bodies to Postgres"),
+    ("index",     "🔄  re-scan sessions into the DB"),
+    ("help",      "❓  show all commands"),
+    ("quit",      "🚪  exit"),
+]
+
+
+def cmd_menu():
+    """Interactive home screen — pick an action, run it, return here."""
+    if not shutil.which("fzf"):
+        print("The interactive menu needs fzf — run: brew install fzf\n")
+        print(USAGE)
+        return
+    while True:
+        lines = "\n".join(f"{k}\t{d}" for k, d in MENU)
+        sel = subprocess.run(
+            ["fzf", "--delimiter=\t", "--with-nth=2..", "--prompt=csess> ",
+             "--height=60%", "--reverse",
+             "--header=type to filter · ↑↓ move · Enter select · Esc quit"],
+            input=lines, capture_output=True, text=True)
+        line = sel.stdout.strip()
+        if not line:
+            return
+        action = line.split("\t")[0]
+        if action == "quit":
+            return
+        elif action == "find":
+            uuid = pick_session()
+            if uuid:
+                cmd_load(uuid, run=True)   # execs into `claude --resume`, ends the menu
+        elif action == "list":
+            cmd_list()
+        elif action == "search":
+            try:
+                term = input("search term: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                return
+            if term:
+                cmd_search(term)
+        elif action == "tag":
+            uuid = pick_session()
+            if uuid:
+                try:
+                    tags = input("tags (space-separated): ").split()
+                except (EOFError, KeyboardInterrupt):
+                    return
+                if tags:
+                    cmd_tag(uuid, tags)
+        elif action == "summarize":
+            cmd_summarize(None)
+        elif action == "push":
+            cmd_push("--all")
+        elif action == "index":
+            cmd_index()
+        elif action == "help":
+            print(USAGE)
 
 
 def cmd_load(uuid, run=False):
@@ -437,6 +509,7 @@ def cmd_load(uuid, run=False):
 
 
 USAGE = """csess — Claude session index
+  csess                          open the interactive menu (or: csess start)
   csess init                     apply DB schema
   csess index                    (re)scan all session metadata into the DB
   csess push [uuid|--all]        store JSONL bodies in Postgres (incremental)
@@ -459,9 +532,15 @@ def main():
     if a and a[0] in ("version", "--version", "-V"):
         print(f"csess {__version__}"); return
     if not a:
-        print(USAGE); return
+        # bare `csess` in a terminal opens the menu; piped/no-fzf falls back to help
+        if sys.stdin.isatty() and sys.stdout.isatty() and shutil.which("fzf"):
+            cmd_menu()
+        else:
+            print(USAGE)
+        return
     cmd, rest = a[0], a[1:]
-    if cmd == "init": cmd_init()
+    if cmd in ("start", "menu"): cmd_menu()
+    elif cmd == "init": cmd_init()
     elif cmd == "index": cmd_index()
     elif cmd == "push": cmd_push(rest[0] if rest else "--all")
     elif cmd == "summarize": cmd_summarize(rest[0] if rest else None)
